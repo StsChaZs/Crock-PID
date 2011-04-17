@@ -1,0 +1,510 @@
+//
+// Crock-PID
+// 
+// inspired by Aaron Stubbendieck'S Crockpot PID Controller V1.0 (www.over-engineered.com)
+// 
+//
+// Last Update: 17 April 2011
+//
+//#include "Wire.h"
+//#include <OneWire.h>
+
+#define ULONG_MAX 4294967295
+
+//
+// Pins
+//
+#define PIN_STATUS 13      //Pin that controls the general status LED
+
+// Triac
+//#define PIN_POWER 4        //Pin that controls the triac
+//#define INT_ZEROCROSS 1    //Pin with the zero-cross interrupt, 1 = pin 3
+//#define PIN_ZEROCROSS 3    //Actual pin with the zero-cross
+
+//The buttons
+//#define PIN_DataA 5
+//#define PIN_DataB 6
+//#define PIN_DataC 7
+//#define PIN_DataD 8
+//#define PIN_DataAvail 2
+//#define INT_DataAvail 0
+
+bool ButtonPressed;    //Current state of the buttons
+int ButtonNumber;       //Previous button states
+
+//
+// Temperature OneWire
+//
+//OneWire ds(2);                  //OneWire temperature interface
+//#define OneWireDelay 750        //Minimum parasite power time required to
+                                //read a valid temperature (ms)
+//#define OneWireNextRead 10000   //Frequency to measure temperature (ms)
+//volatile float _TemperatureCurrent = -1;  //Current temperature measurement (°F)
+//byte OneWireAddress[8];         //Address of the temperature sensor
+
+//int _BadTempCount = 0;            //Counter of the number of consecutive bad temperature reads
+//#define TEMP_BAD_LIMIT 10       //Number of bad temperatures before switching to OFF
+
+//
+// Control
+//
+
+//#define CONTROL_FREQ 2          //How many times per minute to execute control
+//int ControlCounter = CONTROL_FREQ;//Number of cycles since last control action,
+                                //initialized to the CONTROL_FREQ to ensure
+                                //immediate inital control action
+//float _ControlFreq = 3;           //How often the control action is executed, in
+                                //multiples of OneWireNextRead
+                                //TODO: why not a constant?
+//float K = 0.1;                    //Gain  0.043                  0.1
+//float Ti = 150;                   //Integral (min)    102        152
+//float Td = 0.45;                  //Derivative (min)   0.46      0.46
+
+//volatile float _TemperatureSP = 20;  //Current controller SetPoint (°C)
+
+//#define MODE_OFF    0          //No power output                         
+//#define MODE_MAN    1          //Manually set OP
+//#define MODE_AUTO   2          //Set SP, controller uses PID
+//#define MODE_CUTOFF 3          //Set SP, controller uses naive control
+
+//int _Mode = MODE_AUTO;          //The controller mode
+
+//
+// Power Control
+//
+
+//volatile byte _DimLevel = 0;      //The dimming on the control, 255 - Output
+                                //Larger value --> less power
+
+//#define DIM_DELAY 30  //us - Ideally ~32.5 us, but interrupt overhead
+                      //forces this to be smaller to prevent overlapping
+                      //execution cycles
+
+
+//
+// Scheduler
+//
+
+//volatile unsigned long _NextOnTime = ULONG_MAX;  //Next time to turn the triac on,
+                                               //initialized high so it doesn't start on
+//volatile unsigned long _TemperatureAvailable = ULONG_MAX;  //When the temperature reading will
+                                                         //be available from parasite power (ms)
+//volatile unsigned long _TemperatureNextRead = ULONG_MAX;   //Next time to read the temperature (ms)
+
+
+//
+// Historical Values
+//
+
+//This implementation is simplier than using arrays
+
+//volatile float _TemperatureOneAgo = -1;
+//volatile float _TemperatureTwoAgo = -1;
+
+//volatile long _Output = 120;          //Note: Long to prevent issues from integer overflow
+//volatile long _OutputOneAgo = 0;
+
+//volatile float _ErrorCurrent = 0;
+//volatile float _ErrorOneAgo = 0;
+
+//volatile bool _ReinitHistory = true;  //Flag to indicate the history is invalid and needs to be initialized,
+                                    //should lead to faster control action when modes are changed
+
+void setup(void) 
+{
+//  pinMode(PIN_POWER, OUTPUT);
+//  pinMode(PIN_STATUS, OUTPUT);
+//  pinMode(PIN_INTERRUPT, INPUT);
+  
+//  pinMode(PIN_DataA, INPUT);
+//  pinMode(PIN_DataB INPUT);
+//  pinMode(PIN_DataC, INPUT);
+//  pinMode(PIN_DataD, INPUT);
+//  pinMode(PIN_DataAvail, INPUT);
+  
+
+  //Start serial communication
+  Serial.begin(9600);
+
+  LCDBright(20);
+  LCDClear();
+
+  //Locate the temperature sensor
+  //OneWireSearch();
+  //Schedule next temperature read in 0.5 seconds, allows plenty of
+  //time for interrupt handler to be set
+  //_TemperatureNextRead = millis() + 500;
+
+  //Attach the interrupt on the AC zero-cross signal, allows
+  //control of the current
+  attachInterrupt(INT_ZEROCROSS, Dimmer, RISING);
+  attachInterrupt(INT_DataAvail, ReadkeyPad, RISING};
+}
+
+void loop(void)
+{  
+  //Ensure the power stays off when in Off mode
+  //if(_Mode == MODE_OFF)
+  //  _Output = 0;
+
+  //Above ~220 the delay is too short for the simple dimming
+  //control to maintain consistant control
+  //if(_Output > 220)
+  //  digitalWrite(PIN_POWER,HIGH);
+  //else if(_Output < 30)    //Opposite of above
+  //  digitalWrite(PIN_POWER,LOW);
+  //else if(_NextOnTime <= micros())    //In the control range
+  //{
+    //The time to start the triac is controlled by the zero-interrupt
+    //Dimming function (see below)
+
+    //Turn the AC on
+  //  digitalWrite(PIN_POWER, HIGH);
+    //Small delay to allow the pin to set
+  //  delay(1);
+    //Turn the pin off, triac won't physically reset until next
+    //AC zero-cross
+  //  digitalWrite(PIN_POWER,LOW);
+
+    //Clear the scheduler
+  //  _NextOnTime = ULONG_MAX;
+  //}
+
+  //Check if a temperature is available to read
+  //if(millis()>= _TemperatureAvailable)
+  //{
+    //Read the value off the bus
+    float Value = OneWireFinishRead();
+
+    //If there wasn't a read error, use that as the new temperature
+    if(Value!= -1 && Value < 260 && Value > 40)    //261.3 is an invalid read, as is 30.9
+    {
+      _TemperatureCurrent = Value;
+      
+      //Reset the bad counter
+      _BadTempCount = 0;
+    }
+    else
+    {
+      //Count the number of times a bad temperature is read
+      _BadTempCount++;
+     
+      //When a reasonable limit has been passed, switch to off, this
+      //prevents bad things from happening due to a short
+      if(_BadTempCount > TEMP_BAD_LIMIT)
+      {
+        _Mode = MODE_OFF;
+        digitalWrite(PIN_POWER, LOW);
+        _Output = 0;
+      }
+    }
+
+    //If the controller is in auto-mode
+    if(_Mode == MODE_AUTO)
+    {
+      //Increment the control counter
+      ControlCounter++;
+
+      //When the control counter is greater than/equal to the control
+      //frequency then a control action will be executed 
+      if(ControlCounter >= CONTROL_FREQ)
+      {
+        //If this is the first control action in AUTO, initialize the historical
+        //values to prevent windup in the first action
+        if(_ReinitHistory)
+        {
+          _TemperatureOneAgo = _TemperatureCurrent;
+          _TemperatureTwoAgo = _TemperatureCurrent;  
+          
+          _OutputOneAgo = _Output;
+          
+          _ReinitHistory = false;
+        }
+
+        //Determine the current controller error
+        _ErrorCurrent = _TemperatureSP - _TemperatureCurrent;
+
+LCDClear();
+        //Calculate the PID action and scale to the appropriate range
+        _Output = max(0, min(CalcPIDOutput(), 255));
+
+        //Shift the historical PV/OP/error values
+        _TemperatureTwoAgo = _TemperatureOneAgo;
+        _TemperatureOneAgo = _TemperatureCurrent;
+        _OutputOneAgo = _Output;
+
+        _ErrorOneAgo = _ErrorCurrent;
+
+        //Reset the control counter
+        ControlCounter = 0;
+      }
+    }
+    //If the controller is in cut-off (naive) control mode
+    else if(_Mode == MODE_CUTOFF)
+    {
+      //Full power if below the setpoint, otherwise no power
+      if(_TemperatureCurrent < _TemperatureSP)
+        _Output = 255;
+      else
+        _Output = 0;
+    }
+
+    //Normalize the control action into the controlable range
+    //(should already be done)
+    _Output=max(0, min(_Output, 255));
+
+    //LCDClear();
+    PrintPV();
+    PrintSP();
+    PrintOP();
+    PrintMODE();
+  }
+
+  //Invert the PID output to a dimming level
+  _DimLevel = 255 - _Output;
+
+  //Act on button inputs
+  ButtonAction();
+  
+  //If it's time for another temperature read, start it
+  if(millis() >= _TemperatureNextRead)
+    OneWireStartRead();
+}
+
+void PrintPV()
+{
+  LCDGoto(1,0);
+  Serial.print("     ");
+  LCDGoto(1,0);
+  if(_BadTempCount < TEMP_BAD_LIMIT)
+    Serial.print(_TemperatureCurrent,1);
+  else
+    Serial.print("BAD");
+
+}
+
+void PrintSP()
+{
+  LCDGoto(1,6);
+  Serial.print("SP    ");
+  LCDGoto(1,9);
+  if(IsAuto())
+    Serial.print(_TemperatureSP,0);
+  else
+    Serial.print("---");
+}
+
+void PrintOP()
+{
+  LCDGoto(1,13);
+  Serial.print("   ");
+  LCDGoto(1,13);
+  Serial.print(_Output,DEC); 
+}
+
+void PrintMODE()
+{
+  LCDGoto(2,0);
+  Serial.print("      ");
+  LCDGoto(2,0);
+ 
+  if(_Mode == MODE_OFF)
+    Serial.print("Off");
+  else if(_Mode == MODE_MAN)
+    Serial.print("Manual");
+  else if(_Mode == MODE_AUTO)
+    Serial.print("Auto");
+  else if(_Mode == MODE_CUTOFF)
+    Serial.print("Cutoff");
+}
+
+
+//Returns TRUE if controller is in AUTO or CUTOFF mode
+bool IsAuto()
+{
+  return (_Mode == MODE_AUTO || _Mode == MODE_CUTOFF ? TRUE : FALSE);
+}
+
+//Handle init when the mode is changed
+void ModeChange(int NewMode)
+{
+  //Assign the mode and validate
+  _Mode=NewMode;
+  if(_Mode < 0) _Mode=3;
+  if(_Mode > 3) _Mode=0;
+  
+  //Clear history on mode change    
+  if(_Mode == MODE_AUTO)  _ReinitHistory = true;
+  
+  //Force a control action on next temperature read to be more responsive
+  ControlCounter = CONTROL_FREQ;
+}
+
+//Read the button states and take action as necessary
+void ButtonAction()
+{
+  //Read the state of all inputs, subtract BUTTON_BASE so everything is zero-based
+  CurrentButtons[PIN_UP - BUTTON_BASE] = digitalRead(PIN_UP);
+  CurrentButtons[PIN_DOWN - BUTTON_BASE] = digitalRead(PIN_DOWN);
+  CurrentButtons[PIN_LEFT - BUTTON_BASE] = digitalRead(PIN_LEFT);
+  CurrentButtons[PIN_RIGHT - BUTTON_BASE] = digitalRead(PIN_RIGHT);
+  CurrentButtons[PIN_ENTER - BUTTON_BASE] = digitalRead(PIN_ENTER);
+  
+  if(ButtonPressed(PIN_UP))
+  {
+    if(IsAuto())
+    {
+      _TemperatureSP++;
+      PrintSP();
+    }
+    else
+    {
+      _Output = min(_Output+1, 255);
+      PrintOP(); 
+    }
+  }
+  else if(ButtonPressed(PIN_DOWN))
+  {
+    if(IsAuto())
+    {
+      _TemperatureSP--;
+      PrintSP();
+    }
+    else
+    {
+      _Output = max(_Output-1, 0);
+      PrintOP();  
+    }
+  }
+  else if(ButtonPressed(PIN_LEFT))
+  {
+    ModeChange(_Mode-1);
+
+    PrintMODE();
+    PrintSP();
+  }
+  else if(ButtonPressed(PIN_RIGHT))
+  {
+    ModeChange(_Mode+1);
+
+    PrintMODE();
+    PrintSP(); 
+  }
+  //else if(ButtonPressed(PIN_ENTER))
+  //  Serial.print("TODO: MENU");
+  
+  
+  //Move current button states to old
+  memcpy(&LastButtons, CurrentButtons, BUTTON_COUNT);
+}
+
+//Determine if the button is down and that it wasn't down in the scan
+//i.e. one pressure only changes the value once
+bool ButtonPressed(int Button)
+{
+  if(CurrentButtons[Button - BUTTON_BASE] == TRUE && LastButtons[Button - BUTTON_BASE] == FALSE)
+    return TRUE;
+    
+  return FALSE;
+}
+
+//Calculate the PID equation change form, add it to the previous output to calculate
+//the new absolute output.  Type B: P on Error, I on Error, D on Input
+//
+//OP[k] = OP[k-1] + K * (e[k] - e[k-1]) + Ti * Freq * e[k] - Td/Freq * (PV[k] - 2 * PV[k-1] + PV[k-2])
+float CalcPIDOutput()
+{
+  return ((float)_OutputOneAgo - K*(_ErrorCurrent - _ErrorOneAgo) + Ti * (float)_ControlFreq * _ErrorCurrent) - Td / _ControlFreq * (_TemperatureCurrent - 2 * _TemperatureOneAgo + _TemperatureTwoAgo);
+}
+
+//Interrupt handler for the zero-cross signal
+//
+//Calculates the delta time (in us) to wait before turning the triac on,
+//ideally delay 32.5 us (1 sec/(2*60 hz)/256 levels), actually due to
+//overhead the delay is slightly less per dim level
+void Dimmer()
+{
+  //Below a level of 30, the delay becomes too long and starts to cross into
+  //the next execution cycle.  Below this point the heat rate is small so
+  //there is no difference by keeping the triac off.
+  if(_DimLevel > 30)
+    _NextOnTime = micros() + (DIM_DELAY * _DimLevel);
+}
+
+
+
+
+
+
+//
+//LCD Handler Functions
+//
+
+//Go to a current line and position on the LCD
+//Assumes a 2x16 screen (maybe)
+void LCDGoto(int Line, int Pos)
+{
+  Serial.print(0xFE, BYTE);
+
+  int Offset = 0;
+
+  if(Line == 1)
+    Offset = Pos;
+  else if(Line == 2)
+    Offset = 64 + Pos;
+
+  Serial.print(0x80 + Offset, BYTE);
+}
+
+//Set the LCD brightness
+void LCDBright(int Level)
+{
+  if(Level > 29 || Level < 0)
+    return;
+
+  Serial.print(0x7C, BYTE);
+  Serial.print((char)(128 + Level), BYTE);
+}
+
+//Clear the LCD
+void LCDClear()
+{
+  Serial.print(0xFE, BYTE);
+  Serial.print(0x01, BYTE); 
+
+  /*LCDGoto(1,0);
+  Serial.print("                ");
+  LCDGoto(2,0);
+  Serial.print("                ");*/
+}
+
+//Add a character to the LCD display
+void LCDAddChar(uint8_t Pos, uint8_t c[8])
+{
+  Serial.print(0xFE, BYTE);
+  Pos &= 0x7;
+  Serial.print(0x40 | (Pos << 3), BYTE);
+
+  for(int x=0;x<8;x++)
+    Serial.print(c[x], BYTE);
+
+  delay(10);
+}
+
+bool OneWireSearch()
+{
+//Locate the address of the OneWire temperature sensor and store
+//to make feature reads faster
+  //Attempt to locate the address
+  if(!ds.search(OneWireAddress))
+  {
+    ds.reset_search();
+    return false; 
+  }
+
+  //Verify the CRC (valid address)
+  if(OneWire::crc8(OneWireAddress,7) !=  OneWireAddress[7])
+    return false
+//This function is basically a giant scheduler loop, not all time delays
+//and overhead are accounted for, so timing will drift over long executions
+}
