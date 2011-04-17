@@ -4,12 +4,12 @@
 SparkSoftLCD lcd = SparkSoftLCD(LCD_TX);
 
 //RTC-Interface:
+#include <Time.h> 
 #include <Wire.h>
-#include "RTClib.h"
-RTC_DS1307 RTC;
-DateTime now;
+#include <DS1307RTC.h>  // a basic DS1307 library that returns time as a time_t
+time_t time;
 bool timer =1;
-DateTime timernow;
+time_t alarmtime;
 
 //Temperature Control:
 volatile float TemperatureSP = 25.2; 
@@ -18,7 +18,7 @@ volatile float TemperatureIS = 25.4;
 void setup(void) 
 {
  //Start serial communication
- Serial.begin(9600);
+ //Serial.begin(9600);
  
  //Setup Lcd
  pinMode(LCD_TX, OUTPUT);
@@ -29,23 +29,24 @@ void setup(void)
  welcome();  //Display Welcome message
  
  //Setup RTC
- Wire.begin();
- RTC.begin();
- if (! RTC.isrunning()) {
-    lcd.print("RTC is NOT running!");
-    // following line sets the RTC to the date & time this sketch was compiled
-    RTC.adjust(DateTime(__DATE__, __TIME__));
+  setSyncProvider(RTC.get);   // the function to get the time from the RTC
+  if(timeStatus()!= timeSet) 
+     lcd.print("Unable to sync RTC");
+  else
+     lcd.print("RTC in sync");      
     delay(1000);
     
-    //Set 
+    //Set Timer for tests
     now = RTC.now();
+	
   }
 
  
 
   }
+  
   void loop(void) {
-now = RTC.now();  
+time = now();  
 statusDisplay();
 delay(1000);
 
@@ -73,18 +74,19 @@ void statusDisplay() {
   lcd.print("Tc=");
   printFloatLCD(TemperatureIS,1);
   lcd.cursorTo(1,12);
-  if (now.hour()<10) {
+  if (hour(time)<10) {
     lcd.print("0");
   }
-  lcd.print(now.hour(), DEC);
+  lcd.print(hour(time), DEC);
   lcd.print(":");
-    if (now.minute()<10) {
+    if (minute(time)<10) {
     lcd.print("0");
   }
-  lcd.print(now.minute(), DEC);
+  lcd.print(minute(time), DEC);
   lcd.cursorTo(2,1);
   lcd.print("Ts="); 
   printFloatLCD(TemperatureSP,1);
+  /*
   if (countdown = 1) {
     if (countdown_days*24+countdown_hours > 100) {
       lcd.cursorTo(2,11);
@@ -102,6 +104,6 @@ void statusDisplay() {
     }
     lcd.print(countdown_minutes,DEC);
   }
-}
-
+  */
+  }
 
